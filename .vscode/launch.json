@@ -5,12 +5,45 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "(gdb) Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/code/cpp/IC3ref/IC3",
+            "args": [
+                "-v",
+                "<",
+                "${workspaceFolder}/dataset/aig_benchmark/hwmcc07/tip/nusmv.syncarb5^2.B.aig",
+                // "${workspaceFolder}/dataset/toyc2.aag",
+                // "2>&1",">","run.log"
+            ],
+            "stopAtEntry": true,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["-mode", "ic3_ref"]
+            "args": [
+                "-mode",
+                "ic3_ref"
+            ]
         }
     ]
 }

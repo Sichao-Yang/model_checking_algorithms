@@ -388,11 +388,13 @@ namespace IC3 {
                        + (model.endLatches()-model.beginLatches()));
       Minisat::Lit act = Minisat::mkLit(lifts->newVar());  // activation literal
       assumps.push(act);
-      Minisat::vec<Minisat::Lit> cls;
+      MSLitVec cls;
       cls.push(~act);
       cls.push(notInvConstraints);  // successor must satisfy inv. constraint
       if (succ == 0)
-        cls.push(~model.primedError());
+      // s & i & T & ~t' 里的 t:(not error states), this is unsat for sure, 
+      // but we want the core of this unsat 
+        cls.push(~model.primedError());   
       else
         for (LitVec::const_iterator i = state(succ).latches.begin(); 
              i != state(succ).latches.end(); ++i)
@@ -704,9 +706,11 @@ namespace IC3 {
     bool strengthen() {
       Frame & frontier = frames[k];
       trivial = true;  // whether any cubes are generated
-      earliest = k+1;  // earliest frame with enlarged borderCubes
+      earliest = k+1;  // earliest frame with enlarged borderCubes  // this is the last frame index
       while (true) {
         ++nQuery; startTimer();  // stats
+        // F == T, check is F & e' satisfiable, 
+        // if unsat, bad state blocked already, return true
         bool rv = frontier.consecution->solve(model.primedError());
         endTimer(satTime);
         if (!rv) return true;
@@ -716,8 +720,8 @@ namespace IC3 {
         PriorityQueue pq;
         // enqueue main obligation and handle
         pq.insert(Obligation(stateOf(frontier), k-1, 1));
-        if (!handleObligations(pq))
-          return false;
+        if (!handleObligations(pq)) // if cant handle, means found CEX all the way too init frame
+          return false; 
         // finished with States for this iteration, so clean up
         resetStates();
       }
@@ -827,7 +831,7 @@ namespace IC3 {
     bool rv = base0->solve(model.error());
     delete base0;
     if (rv) return false;
-
+    // I & T & e', if sat, return false (property is not invariant) 
     Minisat::Solver * base1 = model.newSolver();
     model.loadInitialCondition(*base1);
     model.loadTransitionRelation(*base1);
