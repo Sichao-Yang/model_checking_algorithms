@@ -3,10 +3,22 @@ CFLAGS=-std=c++0x -Wall -D __STDC_LIMIT_MACROS -D __STDC_FORMAT_MACROS -O0 -g -D
 CXX=g++
 
 INCLUDE=-Iminisat -Iminisat/minisat/core -Iminisat/minisat/mtl -Iminisat/minisat/simp -Iaiger
+.PHONY: minisat, aiger
 
 all:	ic3
 
-ic3:	minisat/build/dynamic/lib/libminisat.so aiger/aiger.o Model.o IC3.o main.o
+minisat/build/dynamic/lib/libminisat.so:
+	cd minisat; $(MAKE) -f Makefile
+	cd minisat; $(MAKE) sh
+
+minisat: minisat/build/dynamic/lib/libminisat.so
+
+aiger/aiger.o:
+	cd aiger && ./configure.sh && $(MAKE)
+
+aiger: aiger/aiger.o
+
+ic3:	minisat aiger/aiger.o
 	$(CXX) $(CFLAGS) $(INCLUDE) -o IC3 \
 		aiger/aiger.o Model.o IC3.o main.o \
 		minisat/build/release/lib/libminisat.a

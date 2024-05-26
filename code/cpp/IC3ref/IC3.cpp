@@ -300,13 +300,13 @@ namespace IC3 {
     Minisat::Solver * lifts;
     Minisat::Lit notInvConstraints;
 
-    // Push a new Frame.
+    // Push a new Frame, initialized with transition T for F[i], i>0
     void extend() {
       while (frames.size() < k+2) {
         frames.resize(frames.size()+1);
         Frame & fr = frames.back();
         fr.k = frames.size()-1;
-        fr.consecution = model.newSolver();
+        fr.consecution = model.newSolver();   // one solver per frame
         if (random) {
           fr.consecution->random_seed = rand();
           fr.consecution->rnd_init_act = true;
@@ -392,10 +392,13 @@ namespace IC3 {
       cls.push(~act);
       cls.push(notInvConstraints);  // successor must satisfy inv. constraint
       if (succ == 0)
-      // s & i & T & ~t' 里的 t:(not error states), this is unsat for sure, 
-      // but we want the core of this unsat 
+      // s & i & T & t' 里的 t:(good state), this is unsat for succ=0 (since 
+      // we enter here by sat T & !t'), 
+      // but we want ot extract the core of this unsat 
         cls.push(~model.primedError());   
-      else
+      else 
+        // if succ!=0, then good state is the negation of state(succ).latch' 
+        // (bad state or avoid)
         for (LitVec::const_iterator i = state(succ).latches.begin(); 
              i != state(succ).latches.end(); ++i)
           cls.push(model.primeLit(~*i));
@@ -406,7 +409,9 @@ namespace IC3 {
         Minisat::lbool val = fr.consecution->modelValue(i->var());
         if (val != Minisat::l_Undef) {
           Minisat::Lit pi = i->lit(val == Minisat::l_False);
-          state(st).inputs.push_back(pi);  // record full inputs
+          // record full inputs, in fact this is only for witness printing, 
+          // not used in backtracking
+          state(st).inputs.push_back(pi);
           assumps.push(pi);
         }
       }
@@ -439,6 +444,8 @@ namespace IC3 {
       endTimer(satTime);
       assert (!rv);
       // obtain lifted latch set from unsat core
+      // latches was recorded and used here to check against model's unsat core: 
+      // (conflict) a subset of assumption literals (negated)
       for (LitVec::const_iterator i = latches.begin(); i != latches.end(); ++i)
         if (lifts->conflict.has(~*i))
           state(st).latches.push_back(*i);  // record lifted latches
@@ -456,6 +463,7 @@ namespace IC3 {
     // inductive and core is provided, extracts the unsat core.  If
     // it's not inductive and pred is provided, extracts
     // predecessor(s).
+    // latches is the state that needs to be blocked 
     bool consecution(size_t fi, const LitVec & latches, size_t succ = 0,
                      LitVec * core = NULL, size_t * pred = NULL, 
                      bool orderedCore = false)
@@ -469,7 +477,7 @@ namespace IC3 {
       cls.push(~act);
       for (LitVec::const_iterator i = latches.begin(); 
            i != latches.end(); ++i) {
-        cls.push(~*i);
+        cls.push(~*i);      // cube's negation is a clause
         assumps.push(*i);  // push unprimed...
       }
       // ... order... (empirically found to best choice)
@@ -481,10 +489,13 @@ namespace IC3 {
       fr.consecution->addClause_(cls);
       // F_fi & ~latches & T & latches'
       ++nQuery; startTimer();  // stats
-      bool rv = fr.consecution->solve(assumps);
+      // assumptions (a list of literals) is actually appended as a cube in 
+      // sat solver
+      bool rv = fr.consecution->solve(assumps);   
       endTimer(satTime);
       if (rv) {
-        // fails: extract predecessor(s)
+        // if sat, means consecution fails: blocking latches is not strong enough
+        // extract predecessor(s), and put the lifted pred into *pred
         if (pred) *pred = stateOf(fr, succ);
         fr.consecution->releaseVar(~act);
         return false;
@@ -600,6 +611,7 @@ namespace IC3 {
       size_t attempts = micAttempts;
       orderCube(cube);
       for (size_t i = 0; i < cube.size();) {
+        // drop the i-th literal
         LitVec cp(cube.begin(), cube.begin() + i);
         cp.insert(cp.end(), cube.begin() + i+1, cube.end());
         if (ctgDown(level, cp, i, recDepth)) {
@@ -660,7 +672,9 @@ namespace IC3 {
     size_t generalize(size_t level, LitVec cube) {
       // generalize
       mic(level, cube);
-      // push
+      // push upward, only when the cube is consecution ok in frame, add
+      // when consecution fails, stop, return failed level (will be added to 
+      // proof obligation later)
       do { ++level; } while (level <= k && consecution(level, cube));
       addCube(level, cube);
       return level;
@@ -675,7 +689,8 @@ namespace IC3 {
         Obligation obl = *obli;
         LitVec core;
         size_t predi;
-        // Is the obligation fulfilled?
+        // Is the obligation fulfilled? 
+        // if yes, means no need to backtrack from this state
         if (consecution(obl.level, state(obl.state).latches, obl.state, 
                         &core, &predi)) {
           // Yes, so generalize and possibly produce a new obligation
@@ -720,7 +735,7 @@ namespace IC3 {
         PriorityQueue pq;
         // enqueue main obligation and handle
         pq.insert(Obligation(stateOf(frontier), k-1, 1));
-        if (!handleObligations(pq)) // if cant handle, means found CEX all the way too init frame
+        if (!handleObligations(pq)) // if cant handle, means found CEX all the way to init frame
           return false; 
         // finished with States for this iteration, so clean up
         resetStates();
@@ -847,7 +862,7 @@ namespace IC3 {
   // External function to make the magic happen.
   bool check(Model & model, int verbose, bool basic, bool random) {
     if (!baseCases(model))
-      return false;
+      return false;  // false means inductive invariant finding failed
     IC3 ic3(model);
     ic3.verbose = verbose;
     if (basic) {
