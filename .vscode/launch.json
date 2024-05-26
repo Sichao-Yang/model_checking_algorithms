@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["lights_out_unsat"]
+            "args": ["-mode", "ic3_ref"]
         }
     ]
 }

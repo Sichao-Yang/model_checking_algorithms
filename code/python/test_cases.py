@@ -1,11 +1,64 @@
+import re
+import inspect
+import tempfile
+from pathlib import Path
+import shutil, subprocess
+from z3 import *
+import sys
+from os import path as osp
+
+root = osp.abspath(osp.join(__file__, "../../../"))
+# print(f"project root: {root}")
+sys.path.append(root)
 from pdr import PDR
 from bmc import BMC
-from z3 import *
-import inspect
-from model import tCube
-import re
+from model import tCube, Model
+from utils.formula import from_z3
 
 
+def convert_aig_to_aag(file, m):
+    aig_path = file
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        aigtoaig_cmd = f"{root}/code/aiger/aigtoaig"
+        tmpdir = Path(tmpdirname)
+        filepath = osp.join(tmpdir, "tmp.aag")
+        shutil.copy(aig_path, tmpdir)
+        subprocess.call([aigtoaig_cmd, aig_path, filepath])
+        return m.parse(filepath)
+
+
+def convert_z3_to_dimacs(z3_expr):  # z3_expr is a z3 expression, e.g. bmc.slv.assertions()
+    f = from_z3(z3_expr)
+    # cnf_string_lst = f.to_dimacs_string()
+    # print(cnf_string_lst)
+    f.to_dimacs_file("tmp.cnf")
+
+
+def comp_circuits(args):
+    if args.mode == "ic3_ref":
+        tool_cmd = f"{root}/code/cpp/IC3ref/IC3"
+        full_cmd = f"{tool_cmd} -v < {filepath} 2>&1 | tee run.log"
+        os.system(full_cmd)
+        return
+
+    m = Model()
+    filepath = args.aag
+    if filepath.endswith(".aig"):
+        inputs = convert_aig_to_aag(filepath, m)
+    else:
+        inputs = m.parse(filepath)
+
+    if args.mode in ["bmc"]:
+        slv = BMC(*inputs)
+        # if args.mode == "bmc":
+        #     print("Now running bmc")
+        #     slv.run(k_ind=False, k=args.k)
+        # elif args.mode == "k-ind":
+        print("Now running k-induction")
+        slv.run()
+    elif args.mode == "pdr":
+        slv = PDR(*inputs)
+        slv.run()
 
 
 def generate_variables(N):
@@ -39,7 +92,7 @@ def convert_to_tcube(formula):
     t = Tactic("aig")  # 转化得到该公式的 aig
     tmp.addAnds(t(g)[0])
     v, vp = get_new_lits(tmp)
-    return tmp,v,vp 
+    return tmp, v, vp
 
 
 def verify_program(
@@ -47,7 +100,7 @@ def verify_program(
 ):
     fname = inspect.stack()[1][3]
 
-    with open("tmp.out", "w") as f:
+    with open("run.log", "w") as f:
         print_and_write(f, title)
         print_and_write(f, "---------------------------------------")
         print_and_write(f, "Init: " + str(init))
@@ -55,14 +108,14 @@ def verify_program(
         if show_trans:
             print("Trans:", trans)
         print_and_write(f, "Post:" + str(post))
-        
+
         trans, new_lits, new_lits_p = convert_to_tcube(trans)
         variables += new_lits
         primes += new_lits_p
         init, new_lits, new_lits_p = convert_to_tcube(init)
         variables += new_lits
         primes += new_lits_p
-        
+
         post, new_lits, new_lits_p = convert_to_tcube(post)
         variables += new_lits
         primes += new_lits_p
@@ -80,7 +133,7 @@ def verify_program(
         print(res_string + str(output) if show_result else res_string)
 
 
-def three_at_a_time():
+def three_at_a_time(args):
     """
     :return: variables -> Boolean Variables, primes -> The Post Condition Variable, init -> The initial State,
     trans -> Transition Function, post -> The Safety Property
@@ -120,10 +173,11 @@ which cannot be violated with a bit vector of size 8 and three bits flipped per 
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def three_at_a_time_odd():
+def three_at_a_time_odd(args):
     size = 9
     variables = generate_variables(size)
     primes = generate_prime(variables)
@@ -152,10 +206,11 @@ The post condition can now be violated flipping three bits at a time""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def boolean_shifter():
+def boolean_shifter(args):
     len = 10
     variables = [Bool(str(i)) for i in range(len)]
     primes = [Bool(str(i) + "'") for i in variables]
@@ -179,10 +234,11 @@ which can take quite a while to fail depending on the width of the bitfield""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def boolean_incrementer():
+def boolean_incrementer(args):
     len = 8
     variables = [Bool(str(i)) for i in range(len)]
     primes = [Bool(str(i) + "'") for i in variables]
@@ -218,10 +274,11 @@ AAAAA is not 11111, which is unsafe after 16 frames""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def incrementer_overflow():
+def incrementer_overflow(args):
     size = 8
     overflow = Bool("Overflow")
     variables = [Bool(str(i)) for i in range(size)] + [overflow]
@@ -260,10 +317,11 @@ so the postcondition is Not(overflow)""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def even_incrementer():
+def even_incrementer(args):
     len = 6
     variables = [Bool(str(i)) for i in range(len)]
     primes = [Bool(str(i) + "'") for i in variables]
@@ -294,10 +352,11 @@ AAA is even, which is safe""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def swapper():
+def swapper(args):
     x = Bool("x")
     y = Bool("y")
     z = Bool("z")
@@ -321,10 +380,11 @@ which is inductive because one is initialized to true and never negated, only sw
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def one_at_a_time():
+def one_at_a_time(args):
     size = 8
     variables = generate_variables(size)
     primes = generate_prime(variables)
@@ -352,10 +412,11 @@ which can be violated in 8 frames""",
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def counter_unsat():
+def counter_unsat(args):
     variables = [BitVec("x", 8)]
     x = variables[0]
     primes = [BitVec("x'", 8)]
@@ -369,10 +430,11 @@ def counter_unsat():
         And(x == 0),
         Or(And(xp == x + 1, x < 64), xp == x),
         x < 10,
+        slv_name=args.mode,
     )
 
 
-def counter_sat():
+def counter_sat(args):
     variables = [BitVec("x", 5)]
     x = variables[0]
     primes = [BitVec("x'", 5)]
@@ -387,10 +449,11 @@ def counter_sat():
         And(x == 0),
         Or(And(xp == x + 1, x < 6), xp == x),
         x < 7,
+        slv_name=args.mode,
     )
 
 
-def add_sub_unsat():
+def add_sub_unsat(args):
     variables = [BitVec("x", 6), BitVec("y", 6)]
     x, y = variables
     primes = [BitVec("x'", 6), BitVec("y'", 6)]
@@ -408,10 +471,11 @@ def add_sub_unsat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def add_sub_sat():
+def add_sub_sat(args):
     variables = [BitVec("x", 3), BitVec("y", 3)]
     x, y = variables
     primes = [BitVec("x'", 3), BitVec("y'", 3)]
@@ -429,10 +493,11 @@ def add_sub_sat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def shifter_unsat():
+def shifter_unsat(args):
     variables = generate_variables(4)
     primes = generate_prime(variables)
     init = And(*[var == False for var in variables[1:]])
@@ -447,10 +512,11 @@ def shifter_unsat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def shifter_sat():
+def shifter_sat(args):
     variables = generate_variables(4)
     primes = generate_prime(variables)
     init = variables[0]
@@ -465,10 +531,11 @@ def shifter_sat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def lights_out_sat():
+def lights_out_sat(args):
     LEN = 9
     variables = generate_variables(LEN)
     primes = generate_prime(variables)
@@ -503,10 +570,11 @@ def lights_out_sat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
 
 
-def lights_out_unsat():
+def lights_out_unsat(args):
     LEN = 9
     variables = generate_variables(LEN)
     primes = generate_prime(variables)
@@ -541,58 +609,5 @@ def lights_out_unsat():
         init,
         trans,
         post,
+        slv_name=args.mode,
     )
-
-
-def run_all():
-    [test() for test in tests[1:]]
-
-
-tests = [
-    run_all,
-    ### bitvec ones
-    # counter_sat,
-    # counter_unsat,
-    # add_sub_sat,
-    # add_sub_unsat,
-    shifter_sat,
-    shifter_unsat,
-    lights_out_sat,
-    lights_out_unsat,
-    swapper,
-    one_at_a_time,
-    three_at_a_time,
-    three_at_a_time_odd,
-    ### large_ones:
-    # boolean_shifter,
-    # boolean_incrementer,
-    # incrementer_overflow,
-    # even_incrementer,
-]
-
-
-def main():
-    import time
-
-    s = time.time()
-
-    test_lookup = {test.__name__: test for test in tests}
-    if len(sys.argv) < 2:
-        value = "shifter_unsat"
-        print("Usage: python test_pdy.py [{}]".format(", ".join([test.__name__ for test in tests])))
-        print("set to default value: {value}")
-        sys.argv.append(value)
-    #     exit()
-
-    test_lookup[sys.argv[1]]()
-
-    print("test time: {}".format(time.time() - s))
-
-
-if __name__ == "__main__":
-
-    from pyinstrument import Profiler
-
-    with Profiler(interval=0.1) as profiler:
-        main()
-    profiler.print()

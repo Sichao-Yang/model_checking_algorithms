@@ -1,5 +1,12 @@
 from z3 import *
 from queue import PriorityQueue
+
+import sys
+from os import path as osp
+
+root = osp.abspath(osp.join(__file__, "../../../"))
+print(f"project root: {root}")
+sys.path.append(root)
 from model import tCube
 
 

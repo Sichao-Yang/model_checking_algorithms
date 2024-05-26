@@ -1,5 +1,5 @@
 """
-The parser for BMC
+The parser for AAG
 """
 
 import re
@@ -443,7 +443,7 @@ class Model:
         property_items = list()
         for it in o:
             tmp = int(it)
-            if tmp & 1 == 0:    # 0 -> False
+            if tmp & 1 == 0:  # 0 -> False
                 if it in inp.keys():
                     property_items.append(Not(inp[it]))
                 elif it in vs.keys():
