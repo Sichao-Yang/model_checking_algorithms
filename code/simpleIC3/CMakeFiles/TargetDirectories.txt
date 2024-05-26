@@ -1,0 +1,3 @@
+/home/sichaoy/pybmc/simpleIC3/CMakeFiles/simpleIC3.dir
+/home/sichaoy/pybmc/simpleIC3/CMakeFiles/edit_cache.dir
+/home/sichaoy/pybmc/simpleIC3/CMakeFiles/rebuild_cache.dir
