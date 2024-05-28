@@ -392,16 +392,15 @@ namespace IC3 {
       cls.push(~act);
       cls.push(notInvConstraints);  // successor must satisfy inv. constraint
       if (succ == 0)
-      // s & i & T & t' 里的 t:(good state), this is unsat for succ=0 (since 
+      // s(bad cube) & T & t' 里的 t:(good state), this is unsat for succ=0 (since 
       // we enter here by sat T & !t'), 
       // but we want ot extract the core of this unsat 
         cls.push(~model.primedError());   
       else 
         // if succ!=0, then good state is the negation of state(succ).latch' 
-        // (bad state or avoid)
         for (LitVec::const_iterator i = state(succ).latches.begin(); 
              i != state(succ).latches.end(); ++i)
-          cls.push(model.primeLit(~*i));
+          cls.push(model.primeLit(~*i));  // negation of state(succ).latch' 
       lifts->addClause_(cls);
       // extract and assert primary inputs
       for (VarVec::const_iterator i = model.beginInputs(); 
@@ -443,9 +442,12 @@ namespace IC3 {
       bool rv = lifts->solve(assumps);
       endTimer(satTime);
       assert (!rv);
-      // obtain lifted latch set from unsat core
-      // latches was recorded and used here to check against model's unsat core: 
-      // (conflict) a subset of assumption literals (negated)
+      // Obtain lifted latch set from unsat core,
+      // latches vector was recorded and used here to check against model's unsat core: 
+      // the conflict(the unsat core) is the disconjunction of a subset of the negation of assumptions
+      // it interprets that if any literal of this subset is assigned to false then the original formula can 
+      // be satisfied (it breaks the unsat core), therefore, we can extract this core by checking if any 
+      // negated literal of the full set is in the conflict.
       for (LitVec::const_iterator i = latches.begin(); i != latches.end(); ++i)
         if (lifts->conflict.has(~*i))
           state(st).latches.push_back(*i);  // record lifted latches
@@ -461,8 +463,7 @@ namespace IC3 {
 
     // Check if ~latches is inductive relative to frame fi.  If it's
     // inductive and core is provided, extracts the unsat core.  If
-    // it's not inductive and pred is provided, extracts
-    // predecessor(s).
+    // it's not inductive and pred is provided, extracts predecessor(s).
     // latches is the state that needs to be blocked 
     bool consecution(size_t fi, const LitVec & latches, size_t succ = 0,
                      LitVec * core = NULL, size_t * pred = NULL, 
@@ -625,7 +626,7 @@ namespace IC3 {
           // reset attempts
           attempts = micAttempts;
         }
-        else {
+        else {  // failed on ctgDown
           if (!--attempts) {
             // Limit number of attempts: if micAttempts literals in a
             // row cannot be dropped, conclude that the cube is just
@@ -696,8 +697,8 @@ namespace IC3 {
           // Yes, so generalize and possibly produce a new obligation
           // at a higher level.
           obls.erase(obli);
-          size_t n = generalize(obl.level, core);
-          if (n <= k)
+          size_t n = generalize(obl.level, core);   // push forward to later frames
+          if (n <= k)   // if not inductive all the way to frame k, add new obligation
             obls.insert(Obligation(obl.state, n, obl.depth));
         }
         else if (obl.level == 0) {
