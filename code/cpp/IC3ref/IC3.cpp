@@ -511,8 +511,7 @@ namespace IC3 {
           assert (!rv);
           endTimer(satTime);
         }
-        for (LitVec::const_iterator i = latches.begin(); 
-             i != latches.end(); ++i)
+        for (LitVec::const_iterator i = latches.begin(); i != latches.end(); ++i)
           if (fr.consecution->conflict.has(~model.primeLit(*i)))
             core->push_back(*i);
         if (!initiation(*core))
@@ -690,19 +689,22 @@ namespace IC3 {
         Obligation obl = *obli;
         LitVec core;
         size_t predi;
-        // Is the obligation fulfilled? 
-        // if yes, means no need to backtrack from this state
+        // Is the obligation fulfilled? is !s&Fi-1&T->!s' (equal to: sat(!s&Fi-1&T&s')->rv)?
+        // if rv==false, unsat, means no need to backtrack from this state, return yes
+        // if rv==true, get predecessor, call stateOf(), store in predi, return false, and add to the obls queue
         if (consecution(obl.level, state(obl.state).latches, obl.state, 
                         &core, &predi)) {
           // Yes, so generalize and possibly produce a new obligation
           // at a higher level.
           obls.erase(obli);
-          size_t n = generalize(obl.level, core);   // push forward to later frames
-          if (n <= k)   // if not inductive all the way to frame k, add new obligation
-            obls.insert(Obligation(obl.state, n, obl.depth));
+          // generalize with mic, then block at current level, then push forward to later frames as far as possible
+          // the learned clause are pushed downward towards frame 1 as well (see addTube funciton)
+          size_t n = generalize(obl.level, core); 
+          // if not inductive all the way to frame k, add new obligation
+          if (n <= k) obls.insert(Obligation(obl.state, n, obl.depth));
         }
+        // obligation reached to level 0, found CEX!
         else if (obl.level == 0) {
-          // No, in fact an initial state is a predecessor.
           cexState = predi;
           return false;
         }
@@ -725,21 +727,25 @@ namespace IC3 {
       earliest = k+1;  // earliest frame with enlarged borderCubes  // this is the last frame index
       while (true) {
         ++nQuery; startTimer();  // stats
-        // F == T, check is F & e' satisfiable, 
-        // if unsat, bad state blocked already, return true
+        // init(F): F:=T, check is F & s' satisfiable, 
+        // if unsat, bad state blocked already, rv==false, return true
         bool rv = frontier.consecution->solve(model.primedError());
         endTimer(satTime);
-        if (!rv) return true;
-        // handle CTI with error successor
-        ++nCTI;  // stats
-        trivial = false;
-        PriorityQueue pq;
-        // enqueue main obligation and handle
-        pq.insert(Obligation(stateOf(frontier), k-1, 1));
-        if (!handleObligations(pq)) // if cant handle, means found CEX all the way to init frame
-          return false; 
-        // finished with States for this iteration, so clean up
-        resetStates();
+        if (!rv){
+          return true;
+        }
+        else{
+          // handle CTI with error successor
+          ++nCTI;  // stats
+          trivial = false;
+          PriorityQueue pq;
+          // enqueue main obligation and handle
+          pq.insert(Obligation(stateOf(frontier), k-1, 1));
+          if (!handleObligations(pq)) // if cant handle, means found CEX all the way to init frame
+            return false; 
+          // finished with States for this iteration, so clean up
+          resetStates();
+        }
       }
     }
 
